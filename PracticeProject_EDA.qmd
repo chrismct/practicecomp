@@ -1,0 +1,169 @@
+---
+title: 'Home Credit Default Risk EDA'
+author: "Chris McTeague"
+date: "10/5/24"
+format:
+  html:
+    embed-resources: true
+    toc: true     
+    toc-smooth-scroll: true
+execute:
+  echo: true       
+  eval: true       
+  message: false
+  warning: false
+---
+
+# Home Credit Default Risk Exploratory Data Analysis
+
+```{r, setup}
+# load packages
+library(tidyverse)
+library(ggplot2)
+
+# load data
+test <- read.csv("application_test.csv")
+train <- read.csv("application_train.csv")
+```
+
+## Business Problem Statement 
+
+Home Credit’s primary focus as a company is to provide individuals who may have a hard time getting a loan from a traditional lender with an opportunity to have a positive loan experience and avoid being taken advantage of by untrustworthy lenders. In order to do so, Home Credit needs to have a reasonable method of accurately predicting the repayment abilities of their prospective clients. Currently Home Credit is investing time and money into modeling these outcomes, but is looking for further support in order to gain maximum insight from their data.
+
+The purpose of this project is to create a model that more accurately predicts how likely a client is to default on their loan than a binary response.
+
+## Questions
+
+- What is the distribution of the target variable?
+- Is there any missing data within the available dataset?
+- Does the dataset contain any duplicate data?
+- What are the basic statistics for the target variable?
+- How accurate is a majority class predictor?
+- Are there any trends between target variable and certain predictors?
+- Is there any correlation between target variable and any predictors?
+- Is there any multicollinearity we need to address between predictors?
+
+## Target Variable Exploration
+
+```{r, target variable1}
+head(train) # basic exploration of structure and appearance of data
+str(train)
+```
+
+```{r, target variable2}
+target_count <- table(train$TARGET) # calculate number of 1's and 0's in target
+print(target_count)
+
+target_props <- prop.table(target_count) * 100 # represent target variable groups as percentages
+print(target_props)
+```
+
+The code above counts the number of 1's and 0's in the binary target variable "TARGET" from the train data set. It is clear that the target variable is skewed in the direction of not defaulting on the the loan. In this example, a majority class classifier would always classify new clients into the Non-Default category, and based on the train data set would be correct about 92% of the time.  
+
+```{r, target variable distribution plotting}
+ggplot(train, aes(x=factor(TARGET))) +
+  geom_bar(fill = c("lightblue","lightgreen")) +
+  labs(title = "Bar Plot of Target Variable Distribution", # create plot to show target distribution
+       x = "Target Variable",
+       y = "Count") +
+  scale_x_discrete(labels = c("Non-Default", "Default"))
+
+```
+The plot above shows just how skewed the distribution of the target variable is in this data set. Over 90% of the dataset did not default on their previous loans. The key here will be to identify which of the members of the remaining 8%, with the right support from Home Credit would be able to pay off their loans in full. 
+
+## Missing Data Assessment
+
+```{r, missing data}
+
+NA_per_col_train <- colSums(is.na(train))
+
+print(NA_per_col_train)
+
+```
+
+```{r, missing data cont}
+
+NA_per_col_test <- colSums(is.na(test))
+
+print(NA_per_col_test)
+
+```
+
+As can be seen above, there is clearly a lot of missing data points within this data set, both in the train and test sets. Not all of these columns are the same, whether that be in the structure of the data that they hold, or their importance to the success of the model building that will be carried out. For now, the columns that include missing data points will have that information be imputed. However, as we continue to explore the various predictors in more detail, ones that do not appear to be vital to the model building process can most likely be removed in totality from the data set. 
+
+## Variable Exploration
+
+```{r, variances train}
+variance_table <- train %>%
+  select_if(is.numeric) %>% 
+  summarise_all(~ round(var(., na.rm = TRUE), 2))
+
+variance_table <- as.data.frame(t(variance_table))
+
+colnames(variance_table) <- c("Variance")
+
+variance_table
+```
+
+There are quite a few variables that have a zero or near zero variance, as can be seen in the table above. These variables most likely will not provide any meaningful information when it comes to building a predictive model. Variables that have a zero or near-zero variance, as well as higher amounts of missing data can be purged from the data set. 
+
+```{r, variances test}
+variance_table <- test %>%
+  select_if(is.numeric) %>% 
+  summarise_all(~ round(var(., na.rm = TRUE), 2))
+
+variance_table <- as.data.frame(t(variance_table))
+
+colnames(variance_table) <- c("Variance")
+
+variance_table
+```
+
+Similar to that of the train data set, there is also a number of varibles within the test data set that have zero or near-zero variances, which will most likely be removed from the data set similarly to the train data set. 
+
+```{r,predictors}
+correlations <- cor(train %>% select_if(is.numeric), use = "complete.obs")
+target_correlations <- correlations["TARGET", ]  
+
+# Sort correlations
+sorted_correlations <- sort(target_correlations, decreasing = TRUE)
+
+# Display the sorted correlations
+print(sorted_correlations)
+```
+
+As shown above, there are a number of variables that are very strongly correlated with the outcome of the target variable for Default, both in terms of positive and negative correlations. These variables should be of primary concern when it comes time for model building. 
+
+```{r, transactional data}
+
+transactional <- read.csv("previous_application.csv") # load the transactional data
+str(transactional)
+```
+
+```{r, transactional join}
+aggregated_transactional <- transactional %>% # aggregate the transactional data set
+  group_by(SK_ID_CURR) %>% 
+  summarise(
+    count_loans = n(), 
+    avg_amount = mean(AMT_APPLICATION, na.rm = TRUE), 
+    total_amount = sum(AMT_APPLICATION, na.rm = TRUE)  
+  )
+
+final_data <- train %>% # join the transactional data onto the train data set
+  left_join(aggregated_transactional, by = "SK_ID_CURR")
+
+head(final_data)
+```
+
+```{r, new data correlations}
+correlations <- cor(final_data %>% select_if(is.numeric), use = "complete.obs") # calculate correlation values between target variable and predictors in the new data set
+target_correlations <- correlations["TARGET", ]  
+
+# Sort correlations
+sorted_correlations <- sort(target_correlations, decreasing = TRUE)
+
+# Display the sorted correlations
+print(sorted_correlations)
+
+
+```
